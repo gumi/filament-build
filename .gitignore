@@ -1,0 +1,5 @@
+external-reference/
+_source/
+_build/
+_package/
+.DS_Store

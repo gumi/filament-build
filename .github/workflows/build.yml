@@ -1,0 +1,124 @@
+name: Build Filament
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'ビルド対象プラットフォーム'
+        required: true
+        type: choice
+        options:
+          - all
+          - macos_arm64
+          - ios_device_arm64
+          - ios_simulator_arm64
+          - android_arm64_v8a
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: macos_arm64
+          - name: ios_device_arm64
+          - name: ios_simulator_arm64
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'macos_arm64' ||
+      github.event.inputs.platform == 'ios_device_arm64' ||
+      github.event.inputs.platform == 'ios_simulator_arm64'
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ビルドツールをインストールする
+        run: brew install ninja cmake
+
+      - name: ${{ matrix.platform.name }} をビルドする
+        run: python3 run.py build ${{ matrix.platform.name }}
+
+      - name: 成果物をパッケージングする
+        run: python3 run.py package ${{ matrix.platform.name }}
+
+      - name: 成果物をアップロードする
+        uses: actions/upload-artifact@v4
+        with:
+          name: filament.${{ matrix.platform.name }}.tar.gz
+          path: _package/${{ matrix.platform.name }}/*.tar.gz
+          retention-days: 7
+
+  build-android:
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'android_arm64_v8a'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ディスクを確保する
+        run: |
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/share/dotnet
+
+      - name: ビルドツールをインストールする
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build cmake \
+            clang-16 libc++-16-dev libc++abi-16-dev \
+            mesa-common-dev libxi-dev libxxf86vm-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libx11-xcb-dev
+          sudo update-alternatives --install /usr/bin/cc cc /usr/bin/clang-16 100
+          sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++-16 100
+
+      - name: Android NDK をセットアップする
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+          link-to-sdk: true
+
+      - name: android_arm64_v8a をビルドする
+        run: python3 run.py build android_arm64_v8a
+        env:
+          CC: clang-16
+          CXX: clang++-16
+
+      - name: 成果物をパッケージングする
+        run: python3 run.py package android_arm64_v8a
+
+      - name: 成果物をアップロードする
+        uses: actions/upload-artifact@v4
+        with:
+          name: filament.android_arm64_v8a.tar.gz
+          path: _package/android_arm64_v8a/*.tar.gz
+          retention-days: 7
+
+  create-release:
+    if: contains(github.ref, 'tags/v')
+    needs:
+      - build-macos
+      - build-android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 全成果物をダウンロードする
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: GitHub Release を作成する
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tar.gz
+          generate_release_notes: true
