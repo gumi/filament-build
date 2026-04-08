@@ -150,6 +150,12 @@ jobs:
             ninja-build cmake \
             clang-16 libc++-16-dev libc++abi-16-dev
 
+      - name: X11/XCB 開発パッケージをインストールする
+        run: |
+          sudo apt-get install -y \
+            mesa-common-dev libxi-dev libxxf86vm-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libx11-xcb-dev
+
       - name: Emscripten をセットアップする
         uses: mymindstorm/setup-emsdk@v14
         with:
