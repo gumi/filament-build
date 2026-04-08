@@ -16,6 +16,8 @@ on:
           - ios_device_arm64
           - ios_simulator_arm64
           - android_arm64_v8a
+          - windows_x64
+          - web_wasm
 
 jobs:
   build-macos:
@@ -102,11 +104,80 @@ jobs:
           path: _package/android_arm64_v8a/*.tar.gz
           retention-days: 7
 
+  build-windows:
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'windows_x64'
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Visual Studio 環境をセットアップする
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: ビルドツールをインストールする
+        run: choco install ninja cmake --yes
+
+      - name: windows_x64 をビルドする
+        run: python run.py build windows_x64
+
+      - name: 成果物をパッケージングする
+        run: python run.py package windows_x64
+
+      - name: 成果物をアップロードする
+        uses: actions/upload-artifact@v4
+        with:
+          name: filament.windows_x64.tar.gz
+          path: _package/windows_x64/*.tar.gz
+          retention-days: 7
+
+  build-web:
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.platform == 'all' ||
+      github.event.inputs.platform == 'web_wasm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ビルドツールをインストールする
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build cmake \
+            clang-16 libc++-16-dev libc++abi-16-dev
+
+      - name: Emscripten をセットアップする
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.60
+
+      - name: web_wasm をビルドする
+        run: python3 run.py build web_wasm
+        env:
+          CC: clang-16
+          CXX: clang++-16
+
+      - name: 成果物をパッケージングする
+        run: python3 run.py package web_wasm
+
+      - name: 成果物をアップロードする
+        uses: actions/upload-artifact@v4
+        with:
+          name: filament.web_wasm.tar.gz
+          path: _package/web_wasm/*.tar.gz
+          retention-days: 7
+
   create-release:
     if: contains(github.ref, 'tags/v')
     needs:
       - build-macos
       - build-android
+      - build-windows
+      - build-web
     runs-on: ubuntu-latest
     permissions:
       contents: write

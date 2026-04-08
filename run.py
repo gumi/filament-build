@@ -87,10 +87,15 @@ TARGETS = [
     "ios_device_arm64",
     "ios_simulator_arm64",
     "android_arm64_v8a",
+    "windows_x64",
+    "web_wasm",
 ]
 
 # ホストツール (iOS/Android ビルドの前提条件)
 MOBILE_HOST_TOOLS = "matc resgen cmgen filamesh uberz"
+
+# ホストツール (Web ビルドの前提条件)
+WEB_HOST_TOOLS = "matc resgen cmgen filamesh uberz mipgen"
 
 # ターゲット別パッチ定義
 # 全ターゲット共通のパッチはここに追加する
@@ -99,6 +104,8 @@ PATCHES: Dict[str, List[str]] = {
     "ios_device_arm64": [],
     "ios_simulator_arm64": [],
     "android_arm64_v8a": [],
+    "windows_x64": [],
+    "web_wasm": [],
 }
 
 
@@ -108,7 +115,9 @@ def check_target(target: str) -> bool:
     if system == "Darwin":
         return target in ("macos_arm64", "ios_device_arm64", "ios_simulator_arm64")
     elif system == "Linux":
-        return target in ("android_arm64_v8a",)
+        return target in ("android_arm64_v8a", "web_wasm")
+    elif system == "Windows":
+        return target in ("windows_x64",)
     return False
 
 
@@ -257,12 +266,79 @@ def build_filament_android(filament_dir: str, build_dir: str):
             cmd(["ninja", "install"])
 
 
+def build_filament_windows(filament_dir: str, build_dir: str):
+    """Windows x64 向け Filament をビルドする"""
+    logging.info("=== Building Filament for windows_x64 ===")
+    with cd(filament_dir):
+        win_build_dir = os.path.join(filament_dir, "out", "cmake-release")
+        mkdir_p(win_build_dir)
+        with cd(win_build_dir):
+            cmd([
+                "cmake", "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_INSTALL_PREFIX=../release/filament",
+                "-DUSE_STATIC_CRT=ON",
+                "-DFILAMENT_SUPPORTS_VULKAN=ON",
+                "-DFILAMENT_SKIP_SAMPLES=ON",
+                "../..",
+            ])
+            cmd(["ninja"])
+            cmd(["ninja", "install"])
+
+
+def build_filament_web(filament_dir: str, build_dir: str):
+    """Web (WebAssembly) 向け Filament をビルドする"""
+    logging.info("=== Building Filament for web_wasm ===")
+
+    emsdk = os.environ.get("EMSDK")
+    if not emsdk:
+        raise Exception("EMSDK is not set")
+
+    with cd(filament_dir):
+        # ホストツールをビルドする (Web ビルドの前提条件)
+        logging.info("Building host tools...")
+        host_build_dir = os.path.join(filament_dir, "out", "cmake-release")
+        mkdir_p(host_build_dir)
+        with cd(host_build_dir):
+            cmd([
+                "cmake", "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_INSTALL_PREFIX=../release/filament",
+                "-DIMPORT_EXECUTABLES_DIR=out/cmake-release",
+                "-DFILAMENT_SKIP_SAMPLES=ON",
+                "../..",
+            ])
+            cmd(["ninja", *WEB_HOST_TOOLS.split()])
+
+        # WebGL をビルドする
+        logging.info("Building WebGL...")
+        toolchain = os.path.join(
+            emsdk, "upstream", "emscripten",
+            "cmake", "Modules", "Platform", "Emscripten.cmake",
+        )
+        web_build_dir = os.path.join(filament_dir, "out", "cmake-webgl-release")
+        mkdir_p(web_build_dir)
+        with cd(web_build_dir):
+            cmd([
+                "cmake", "-G", "Ninja",
+                "-DIMPORT_EXECUTABLES_DIR=out/cmake-release",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_INSTALL_PREFIX=../webgl-release/filament",
+                f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
+                "-DWEBGL=1",
+                "../..",
+            ])
+            cmd(["ninja"])
+
+
 # ターゲットごとのビルド成果物のインストールディレクトリ
 INSTALL_DIRS = {
     "macos_arm64": os.path.join("out", "release", "filament"),
     "ios_device_arm64": os.path.join("out", "ios-release", "filament"),
     "ios_simulator_arm64": os.path.join("out", "ios-release", "filament"),
     "android_arm64_v8a": os.path.join("out", "android-release", "filament"),
+    "windows_x64": os.path.join("out", "release", "filament"),
+    "web_wasm": os.path.join("out", "cmake-webgl-release", "web", "filament-js"),
 }
 
 # ターゲットごとのビルド関数
@@ -271,6 +347,8 @@ BUILD_FUNCS = {
     "ios_device_arm64": build_filament_ios_device,
     "ios_simulator_arm64": build_filament_ios_simulator,
     "android_arm64_v8a": build_filament_android,
+    "windows_x64": build_filament_windows,
+    "web_wasm": build_filament_web,
 }
 
 
@@ -290,7 +368,7 @@ def copy_libraries(install_dir: str, package_dir: str):
     if os.path.exists(src_lib):
         for root, _, files in os.walk(src_lib):
             for f in files:
-                if f.endswith(".a"):
+                if f.endswith(".a") or f.endswith(".lib"):
                     shutil.copy2(os.path.join(root, f), lib_dir)
 
 
@@ -342,6 +420,20 @@ def verify_artifacts(target: str, package_dir: str):
         else:
             logging.warning("WARNING: libgltfio_core.a not found")
 
+    if target == "windows_x64":
+        if os.path.exists(os.path.join(lib_dir, "filament.lib")):
+            logging.info("OK: filament.lib found")
+        else:
+            logging.warning("WARNING: filament.lib not found")
+
+
+def copy_web_artifacts(install_dir: str, package_dir: str):
+    """Web ビルドの成果物 (JS/WASM) をコピーする"""
+    for root, _, files in os.walk(install_dir):
+        for f in files:
+            if f.endswith(".js") or f.endswith(".wasm") or f.endswith(".d.ts"):
+                shutil.copy2(os.path.join(root, f), package_dir)
+
 
 def package_filament(
     source_dir: str,
@@ -358,20 +450,24 @@ def package_filament(
     rm_rf(filament_package_dir)
     mkdir_p(filament_package_dir)
 
-    # ライブラリをコピーする
-    copy_libraries(install_dir, filament_package_dir)
+    if target == "web_wasm":
+        # Web は JS/WASM をパッケージングする
+        copy_web_artifacts(install_dir, filament_package_dir)
+    else:
+        # ライブラリをコピーする
+        copy_libraries(install_dir, filament_package_dir)
 
-    # ヘッダーをコピーする
-    copy_headers(install_dir, filament_package_dir)
+        # ヘッダーをコピーする
+        copy_headers(install_dir, filament_package_dir)
+
+        # 成果物を検証する
+        verify_artifacts(target, filament_package_dir)
 
     # ライセンスをコピーする
     copy_licenses(filament_dir, filament_package_dir, base_dir)
 
     # バージョン情報をコピーする
     generate_version_info(filament_package_dir, os.path.join(base_dir, "VERSION"))
-
-    # 成果物を検証する
-    verify_artifacts(target, filament_package_dir)
 
     # tar.gz にパッケージングする
     version = read_version_file(os.path.join(base_dir, "VERSION"))
