@@ -280,6 +280,7 @@ def build_filament_windows(filament_dir: str, build_dir: str):
                 "-DUSE_STATIC_CRT=ON",
                 "-DFILAMENT_SUPPORTS_VULKAN=ON",
                 "-DFILAMENT_SKIP_SAMPLES=ON",
+                "-DFILAMENT_WINDOWS_CI_BUILD=ON",
                 "../..",
             ])
             cmd(["ninja"])
