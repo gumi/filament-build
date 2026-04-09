@@ -16,8 +16,8 @@ Filament 公式のプリビルトバイナリは iOS simulator arm64 (`platform:
 | iOS device | arm64 | `macos-latest` | あり |
 | iOS simulator | arm64 | `macos-latest` | **なし** |
 | Android | arm64-v8a | `ubuntu-latest` | あり |
-
-Filament 公式は上記に加え Linux (x86_64/ARM)、Windows、Web (WebAssembly) のプリビルトバイナリも提供している。このプロジェクトではそれらはカバーしない。
+| Windows | x64 | `windows-latest` | あり |
+| Web | WebAssembly | `ubuntu-latest` | あり |
 
 ## ダウンロード
 
@@ -30,14 +30,28 @@ filament-v{version}-macos_arm64.tar.gz
 filament-v{version}-ios_device_arm64.tar.gz
 filament-v{version}-ios_simulator_arm64.tar.gz
 filament-v{version}-android_arm64_v8a.tar.gz
+filament-v{version}-windows_x64.tar.gz
+filament-v{version}-web_wasm.tar.gz
 ```
 
-各アーカイブの構成:
+各アーカイブの構成 (macOS/iOS/Android/Windows):
 
 ```
 filament/
-├── lib/          # 静的ライブラリ (.a)
+├── lib/          # 静的ライブラリ (.a / .lib)
 ├── include/      # ヘッダーファイル
+├── LICENSE
+├── NOTICE
+└── VERSIONS
+```
+
+Web (WebAssembly) の構成:
+
+```
+filament/
+├── filament.js
+├── filament.wasm
+├── filament.d.ts
 ├── LICENSE
 ├── NOTICE
 └── VERSIONS
@@ -50,6 +64,8 @@ filament/
 - CMake, Ninja
 - Xcode (macOS/iOS ターゲット)
 - Android NDK (Android ターゲット、`ANDROID_HOME` の設定が必要)
+- Visual Studio + MSVC (Windows ターゲット)
+- Emscripten SDK (Web ターゲット、`EMSDK` の設定が必要)
 
 ```bash
 # ビルド
@@ -59,7 +75,7 @@ python3 run.py build <target>
 python3 run.py package <target>
 ```
 
-ターゲット: `macos_arm64`, `ios_device_arm64`, `ios_simulator_arm64`, `android_arm64_v8a`
+ターゲット: `macos_arm64`, `ios_device_arm64`, `ios_simulator_arm64`, `android_arm64_v8a`, `windows_x64`, `web_wasm`
 
 ## CI/CD
 
