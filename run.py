@@ -288,7 +288,13 @@ def build_filament_windows(filament_dir: str, build_dir: str):
 
 
 def build_filament_web(filament_dir: str, build_dir: str):
-    """Web (WebAssembly) 向け Filament をビルドする"""
+    """Web (WebAssembly) 向け Filament をビルドする。
+
+    consumer が自前の WASM モジュールに static link する前提なので、
+    Filament 公式の filament-js (`.js` + `.wasm` の既リンク bundle) は
+    生成物として使わず、Emscripten 形式の静的アーカイブ (`.a`) と
+    ヘッダーを他プラットフォームと同じレイアウトで install する。
+    """
     logging.info("=== Building Filament for web_wasm ===")
 
     emsdk = os.environ.get("EMSDK")
@@ -311,7 +317,7 @@ def build_filament_web(filament_dir: str, build_dir: str):
             ])
             cmd(["ninja", *WEB_HOST_TOOLS.split()])
 
-        # WebGL をビルドする
+        # WebGL (Emscripten) 向けに Filament をビルドして install する
         logging.info("Building WebGL...")
         toolchain = os.path.join(
             emsdk, "upstream", "emscripten",
@@ -327,9 +333,15 @@ def build_filament_web(filament_dir: str, build_dir: str):
                 "-DCMAKE_INSTALL_PREFIX=../webgl-release/filament",
                 f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
                 "-DWEBGL=1",
+                "-DFILAMENT_SKIP_SAMPLES=ON",
                 "../..",
             ])
             cmd(["ninja"])
+            # ninja install は Filament の全静的ライブラリとヘッダーを
+            # CMAKE_INSTALL_PREFIX (out/webgl-release/filament) に配置する。
+            # これ無しでは .a ファイルが out ツリーに散らばったままで
+            # パッケージングできない。
+            cmd(["ninja", "install"])
 
 
 # ターゲットごとのビルド成果物のインストールディレクトリ
@@ -339,7 +351,9 @@ INSTALL_DIRS = {
     "ios_simulator_arm64": os.path.join("out", "ios-release", "filament"),
     "android_arm64_v8a": os.path.join("out", "android-release", "filament"),
     "windows_x64": os.path.join("out", "release", "filament"),
-    "web_wasm": os.path.join("out", "cmake-webgl-release", "web", "filament-js"),
+    # `ninja install` の出力先。他プラットフォームと同じレイアウトの
+    # `lib/*.a` + `include/...` が入る。
+    "web_wasm": os.path.join("out", "webgl-release", "filament"),
 }
 
 # ターゲットごとのビルド関数
@@ -421,19 +435,20 @@ def verify_artifacts(target: str, package_dir: str):
         else:
             logging.warning("WARNING: libgltfio_core.a not found")
 
+    if target == "web_wasm":
+        # Emscripten 形式の静的アーカイブが install されているか
+        # 確認する。consumer 側の wasm モジュールとリンクする前提なので
+        # 最低限 libfilament.a が無いと何もできない。
+        if os.path.exists(os.path.join(lib_dir, "libfilament.a")):
+            logging.info("OK: libfilament.a found")
+        else:
+            logging.warning("WARNING: libfilament.a not found")
+
     if target == "windows_x64":
         if os.path.exists(os.path.join(lib_dir, "filament.lib")):
             logging.info("OK: filament.lib found")
         else:
             logging.warning("WARNING: filament.lib not found")
-
-
-def copy_web_artifacts(install_dir: str, package_dir: str):
-    """Web ビルドの成果物 (JS/WASM) をコピーする"""
-    for root, _, files in os.walk(install_dir):
-        for f in files:
-            if f.endswith(".js") or f.endswith(".wasm") or f.endswith(".d.ts"):
-                shutil.copy2(os.path.join(root, f), package_dir)
 
 
 def package_filament(
@@ -443,7 +458,13 @@ def package_filament(
     target: str,
     base_dir: str,
 ):
-    """ビルド成果物をパッケージングする"""
+    """ビルド成果物をパッケージングする。
+
+    全ターゲットで `lib/*.a` (Windows は `lib/*.lib`) + `include/...` の
+    同じレイアウトを提供する。Web (wasm) は Emscripten 形式の静的
+    アーカイブで、consumer 側の wasm モジュールに static link される
+    前提。
+    """
     filament_dir = os.path.join(source_dir, "filament")
     install_dir = os.path.join(filament_dir, INSTALL_DIRS[target])
 
@@ -451,18 +472,14 @@ def package_filament(
     rm_rf(filament_package_dir)
     mkdir_p(filament_package_dir)
 
-    if target == "web_wasm":
-        # Web は JS/WASM をパッケージングする
-        copy_web_artifacts(install_dir, filament_package_dir)
-    else:
-        # ライブラリをコピーする
-        copy_libraries(install_dir, filament_package_dir)
+    # ライブラリをコピーする
+    copy_libraries(install_dir, filament_package_dir)
 
-        # ヘッダーをコピーする
-        copy_headers(install_dir, filament_package_dir)
+    # ヘッダーをコピーする
+    copy_headers(install_dir, filament_package_dir)
 
-        # 成果物を検証する
-        verify_artifacts(target, filament_package_dir)
+    # 成果物を検証する
+    verify_artifacts(target, filament_package_dir)
 
     # ライセンスをコピーする
     copy_licenses(filament_dir, filament_package_dir, base_dir)

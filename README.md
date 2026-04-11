@@ -34,7 +34,7 @@ filament-v{version}-windows_x64.tar.gz
 filament-v{version}-web_wasm.tar.gz
 ```
 
-各アーカイブの構成 (macOS/iOS/Android/Windows):
+各アーカイブの構成は全ターゲットで共通:
 
 ```
 filament/
@@ -45,17 +45,12 @@ filament/
 └── VERSIONS
 ```
 
-Web (WebAssembly) の構成:
-
-```
-filament/
-├── filament.js
-├── filament.wasm
-├── filament.d.ts
-├── LICENSE
-├── NOTICE
-└── VERSIONS
-```
+Web (WebAssembly) アーカイブの `lib/*.a` は Emscripten 形式の静的
+アーカイブで、consumer 側の wasm モジュール (例: 自前の
+`agx_api.cpp`) と **static link** される前提で提供している。
+Filament 公式が配布している filament-js (`filament.js` +
+`filament.wasm` のリンク済み JavaScript bundle) は目的が違う
+ため、このプロジェクトからは配布しない。
 
 ## ローカルビルド
 
