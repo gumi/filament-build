@@ -332,6 +332,7 @@ def build_filament_web(filament_dir: str, build_dir: str):
                 "-DCMAKE_BUILD_TYPE=Release",
                 "-DCMAKE_INSTALL_PREFIX=../webgl-release/filament",
                 f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
+                "-DWASM=1",
                 "-DWEBGL=1",
                 "-DFILAMENT_SKIP_SAMPLES=ON",
                 "../..",
